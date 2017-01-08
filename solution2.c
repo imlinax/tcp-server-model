@@ -5,13 +5,23 @@
 #include <sys/socket.h>
 #include <sys/wait.h>
 #include <arpa/inet.h>
+#include <pthread.h>
 
-void sigchld_handle(int sig)
+void * echo_thread(void * arg)
 {
-	int status;
-	while(waitpid(-1,&status,WNOHANG) > 0)
+	// 分离线程
+	pthread_detach(pthread_self());
+
+	const int BUFFERSIZE = 1024;
+	char buffer[BUFFERSIZE];
+	int clifd = (int)(long)arg;
+	int readlen = 0;
+	while((readlen = read(clifd,buffer,BUFFERSIZE)) > 0)
 	{
+		// echo
+		write(clifd,buffer,readlen);	
 	}
+	return NULL;
 }
 int main(int argc,char **argv)
 {
@@ -28,6 +38,7 @@ int main(int argc,char **argv)
 		exit(EXIT_FAILURE);
 	}
 
+	// 设置地址及端口
 	serveraddr.sin_family = AF_INET;
 	serveraddr.sin_port = htons(port);
 	serveraddr.sin_addr.s_addr = htonl(INADDR_ANY);
@@ -45,9 +56,6 @@ int main(int argc,char **argv)
 		exit(EXIT_FAILURE);
 	}
 
-	// 处理子进程退出信号,回收资源
-	signal(SIGCHLD,sigchld_handle);
-
 	socklen_t cliaddrlen = sizeof(cliaddr);
 	while(1)
 	{
@@ -57,26 +65,9 @@ int main(int argc,char **argv)
 			perror("accept error");
 			continue;
 		}
-		pid_t pid ;
-		if((pid = fork()) == 0)
-		{
-			const int BUFFERSIZE = 1024;
-			char buffer[BUFFERSIZE];
-			int readlen = 0;
-			while((readlen = read(clifd,buffer,BUFFERSIZE)) > 0)
-			{
-				// echo
-				write(clifd,buffer,readlen);	
-			}
-		}
-		else if(pid > 0)
-		{
-			close(clifd);
-		}
-		else
-		{
-			perror("fork error");
-		}
+
+		pthread_t tid;
+		pthread_create(&tid,NULL,echo_thread,(void *)(long)clifd);
 	}
 
 	return 0;
